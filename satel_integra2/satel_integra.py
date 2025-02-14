@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""Main module."""
+"""Main module. by ALEXENERGY"""
 
 import asyncio
 import logging
@@ -197,7 +197,7 @@ class AsyncSatel:
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
         data = generate_query(
-            b'\x7F\x01\xDC\x99\x80\x00\x04\x00\x00\x00\x00\x00\x00')
+            b'\x7F\x05\xDC\x99\x80\x00\x04\x00\x00\x00\x00\x00\x00')
 
         await self._send_data(data)
         resp = await self._read_data()
