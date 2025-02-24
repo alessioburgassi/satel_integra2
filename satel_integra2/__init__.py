@@ -2,6 +2,6 @@
 
 """Top-level package for Satel Integra."""
 
-__author__ = """Krzysztof Machelski"""
-__email__ = 'krzysztof.machelski+pypi@gmail.com'
-__version__ = '0.4.2'
+__author__ = """Alessio Burgassi"""
+__email__ = 'alexenergy83@gmail.com'
+__version__ = '1.0.0'
