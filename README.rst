@@ -7,11 +7,6 @@ Extended version.
 
 This is a fork of https://github.com/c-soft/satel_integra.
 
-
-* Free software: MIT license
-* Documentation: https://satel-integra2.readthedocs.io.
-
-
 Features
 --------
 
