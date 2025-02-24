@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
-"""Main module. by ALEXENERGY"""
+"""Support for Satel Integra devices."""
+""" VERSION EXTENDED BY ALESSIO BURGASSI """
+""" SUPPORT ALL EVENT ZONE (VIOLATED,ALARM,TAMPER,BYPASS,MASKED)"""
+
 
 import asyncio
 import logging
