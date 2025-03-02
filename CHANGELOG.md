@@ -1,4 +1,7 @@
 # Changelog
+## [1.0.0] (2025-02-02)
+
+* support for all zones satus (violation,alarm,bypass,mask)
 
 ## [0.4.2] (2023-02-12)
 
