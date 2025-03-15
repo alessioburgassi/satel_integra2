@@ -453,7 +453,7 @@ class AsyncSatel:
             code += 'F'
 
         code_bytes = bytearray.fromhex(code)
-        mode_command = 0x80 + mode
+        mode_command = 0xA0 + mode
         data = generate_query(mode_command.to_bytes(1, 'big')
                               + code_bytes
                               + partition_bytes(partition_list))
