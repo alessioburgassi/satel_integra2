@@ -584,7 +584,7 @@ class AsyncSatel:
             self._reader = None
             
             if  self._keep_alive_retry > 0:
-                self._keep_alive_retry--
+                self._keep_alive_retry-=1
                 _LOGGER.warning("Got empty response. We think it's disconnect. RETRY")
                 return
             if self._alarm_status_callback:
