@@ -141,7 +141,6 @@ class AsyncSatel:
         self.partition_states = {}
         self._keep_alive_timeout = 20
         self._reconnection_timeout = 15
-        self._keep_alive_retry = 0
         self._reader = None
         self._writer = None
         self.closed = False
@@ -533,8 +532,8 @@ class AsyncSatel:
             self._writer = None
             self._reader = None
 
-          """  if self._alarm_status_callback:
-                self._alarm_status_callback()"""
+            if self._alarm_status_callback:
+                self._alarm_status_callback()
 
     async def _read_plain(self):
         data = await self._reader.readuntil(END_SEQUENCE)
@@ -584,9 +583,9 @@ class AsyncSatel:
             _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
             self._reader = None
-            """if self._alarm_status_callback:
+            if self._alarm_status_callback:
                 self._alarm_status_callback()
-            return"""
+            return
 
         msg_id = resp[0:1]
         str_msg_id = ''.join(format(x, '02x') for x in msg_id)
