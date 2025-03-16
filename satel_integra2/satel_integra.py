@@ -135,6 +135,7 @@ class AsyncSatel:
         self.bypass_zones = []
         self.masked_zones = []
         self.mem_masked_zones = []
+        self._keep_alive_wait_responde = False
 
         self._monitored_outputs = monitored_outputs
         self.violated_outputs = []
@@ -423,7 +424,6 @@ class AsyncSatel:
     async def _send_data(self, data):
         _LOGGER.debug("-- Sending data --")
         print_hex(data)
-
         if not self._writer:
             _LOGGER.warning("Ignoring data because we're disconnected!")
             return
@@ -446,6 +446,7 @@ class AsyncSatel:
             self._writer = None
             self._reader = None
             return False
+        self._writed_data = True
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
@@ -534,7 +535,7 @@ class AsyncSatel:
 
             if self._alarm_status_callback:
                 self._alarm_status_callback()
-
+            
     async def _read_plain(self):
         data = await self._reader.readuntil(END_SEQUENCE)
         _LOGGER.debug("-- Receiving data --")
@@ -571,6 +572,13 @@ class AsyncSatel:
             if self.closed:
                 return
             # Command to read status of the alarm
+            _LOGGER.debug("Sending Keepalive")
+            
+            if self._keep_alive_wait_responde == True:
+                self._writer = None
+                self._reader = None
+                _LOGGER.error("No data received at Keepalive, disconnected?")
+            self._keep_alive_wait_responde = True
             data = generate_query(b'\xEE\x01\x01')
             await self._send_data(data)
 
@@ -594,6 +602,7 @@ class AsyncSatel:
             self._message_handlers[msg_id](resp)
         else:
             _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
+            _keep_alive_wait_responde = False
 
     async def monitor_status(self, alarm_status_callback=None,
                              zone_violated_callback=None,
