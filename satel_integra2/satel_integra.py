@@ -141,6 +141,8 @@ class AsyncSatel:
         self.partition_states = {}
         self._keep_alive_timeout = 20
         self._reconnection_timeout = 15
+        self._keep_alive_retry = 0
+        
         self._reader = None
         self._writer = None
         self.closed = False
@@ -222,6 +224,7 @@ class AsyncSatel:
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
+        _LOGGER.debug("Activate AUTOMATIC mode for Integra event")
         data = generate_query(
             b'\x7F\x7D\xDC\x99\x80\x00\x07\x00\x00\x00\x00\x00\x00')
         
@@ -527,12 +530,9 @@ class AsyncSatel:
             return verify_and_strip(data)
         except Exception as e:
             _LOGGER.warning(
-                "Got exception: %s.", e)
+                "ERROR! Got exception: %s.", e)
             self._writer = None
             self._reader = None
-
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
 
     async def _read_plain(self):
         data = await self._reader.readuntil(END_SEQUENCE)
@@ -569,23 +569,29 @@ class AsyncSatel:
             await asyncio.sleep(self._keep_alive_timeout)
             if self.closed:
                 return
+            _LOGGER.debug("Sending KEEPALIVE request")    
             # Command to read status of the alarm
             data = generate_query(b'\xEE\x01\x01')
             await self._send_data(data)
 
     async def _update_status(self):
-        _LOGGER.debug("Wait...")
+        _LOGGER.debug("Wait next data...")
 
         resp = await self._read_data()
 
         if not resp:
-            _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
             self._reader = None
+            
+            if  self._keep_alive_retry > 0 
+                self._keep_alive_retry--
+                _LOGGER.warning("Got empty response. We think it's disconnect. RETRY")
+                return
             if self._alarm_status_callback:
                 self._alarm_status_callback()
+                _LOGGER.warning("Got empty response. We think it's disconnect. DISCONNECTED")
             return
-
+        self._keep_alive_retry = 3
         msg_id = resp[0:1]
         str_msg_id = ''.join(format(x, '02x') for x in msg_id)
         if msg_id in self._message_handlers:
@@ -632,11 +638,12 @@ class AsyncSatel:
                     _LOGGER.warning("Not connected, sleeping for 10s... ")
                     await asyncio.sleep(self._reconnection_timeout)
                     continue
-            await self.start_monitoring()
+            await self.start_monitoring() """Activate AUTOMATIC mode for Integra event"""
             if not self.connected:
                 _LOGGER.warning("Start monitoring failed, sleeping for 10s...")
                 await asyncio.sleep(self._reconnection_timeout)
                 continue
+            """ OK connected, start status loop"""
             while True:
                 await self._update_status()
                 _LOGGER.debug("Got status!")
