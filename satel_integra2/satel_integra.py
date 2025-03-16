@@ -192,6 +192,7 @@ class AsyncSatel:
             AlarmState.TRIGGERED, msg)
         self._message_handlers[b'\x14'] = lambda msg: self._armed(
             AlarmState.TRIGGERED_FIRE, msg)
+        self._message_handlers[b'\xEE'] = self._keep_alive
         self._encryption_handler = None
 
     @property
@@ -272,7 +273,11 @@ class AsyncSatel:
             self._zone_alarm_callback(status)
 
         return status
-
+    def _keep_alive(self, msg):
+        self._keep_alive_wait_responde = False
+        _LOGGER.debug("Keep alive OK")
+        return True
+        
     def _zone_mem_alarm(self, msg):
 
         status = {"zones": {}}
@@ -446,8 +451,7 @@ class AsyncSatel:
             self._writer = None
             self._reader = None
             return False
-        self._writed_data = True
-
+        
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
         _LOGGER.debug("Sending arm command, mode: %s!", mode)
@@ -572,13 +576,14 @@ class AsyncSatel:
             if self.closed:
                 return
             # Command to read status of the alarm
-            _LOGGER.debug("Sending Keepalive")
             
+            _LOGGER.debug("Check previus Keepalive...")
             if self._keep_alive_wait_responde == True:
                 self._writer = None
                 self._reader = None
-                _LOGGER.error("No data received at Keepalive, disconnected?")
+                _LOGGER.error("No data received at previus Keepalive, disconnected?")
             self._keep_alive_wait_responde = True
+            _LOGGER.debug("Sending Keepalive")
             data = generate_query(b'\xEE\x01\x01')
             await self._send_data(data)
 
@@ -602,7 +607,7 @@ class AsyncSatel:
             self._message_handlers[msg_id](resp)
         else:
             _LOGGER.info("Ignoring message: 0x%s", str_msg_id)
-            _keep_alive_wait_responde = False
+         
 
     async def monitor_status(self, alarm_status_callback=None,
                              zone_violated_callback=None,
