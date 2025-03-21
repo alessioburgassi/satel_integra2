@@ -5,6 +5,7 @@
 import asyncio
 import collections
 import logging
+import time
 from binascii import hexlify
 from enum import Enum, unique
 
@@ -38,6 +39,13 @@ def code_bytes(code):
 
 class SatelCommand(Enum):
     ZONE_VIOLATED   = (0x00,)
+    ZONE_ALARM   = (0x02,)
+    ZONE_MEM_ALARM   = (0x04,)
+    ZONE_TAMPER   = (0x01,)
+    ZONE_MEM_TAMPER   = (0x05,)
+    ZONE_BYPASS   = (0x06,)
+    ZONE_MASKED   = (0x28,)
+    ZONE_MEM_MASKED   = (0x29,)
     ARMED_MODE0     = (0x0A,)
     ARMED_MODE1     = (0x2A,)
     ARMED_MODE2     = (0x0B,)
@@ -209,15 +217,31 @@ class AsyncSatel:
         self._monitored_zones = monitored_zones
         self.violated_zones = []
         self._monitored_outputs = monitored_outputs
-        self.violated_outputs = []
+        self.violated_zones = []
+        self.alarm_zones = []
+        self.mem_alarm_zones = []
+        self.tamper_zones = []
+        self.mem_tamper_zones = []
+        self.bypass_zones = []
+        self.masked_zones = []
+        self.mem_masked_zones = []
         self.partition_states = {}
+        self.partition_states_last_updated = time.time()
+        self.partition_armed_delay_timeout = 5
         self._keep_alive_timeout = 20
         self._reconnection_timeout = 15
         self._reader = None
         self._writer = None
         self.closed = False
         self._alarm_status_callback = None
-        self._zone_changed_callback = None
+        self._zone_violated_callback = None
+        self._zone_alarm_callback = None
+        self._zone_mem_alarm_callback = None
+        self._zone_tamper_callback = None
+        self._zone_mem_tamper_callback = None
+        self._zone_bypass_callback = None
+        self._zone_masked_callback = None
+        self._zone_mem_tasked_callback = None
         self._output_changed_callback = None
         self._partitions = partitions
         self._command_status_event = asyncio.Event()
@@ -227,6 +251,14 @@ class AsyncSatel:
         self._message_handlers = {
             SatelCommand.RESULT:                    [self._command_result],
             SatelCommand.ZONE_VIOLATED:             [self._zone_violated],
+			SatelCommand.ZONE_ALARM:                [self._zone_alarm],
+			SatelCommand.ZONE_MEM_ALARM:            [self._zone_mem_alarm],
+			SatelCommand.ZONE_TAMPER:               [self._zone_tamper],
+            SatelCommand.ZONE_MEM_TAMPER:               [self._zone_mem_tamper],
+			SatelCommand.ZONE_BYPASS:               [self._zone_bypass],
+			SatelCommand.ZONE_MASKED:               [self._zone_masked],
+			SatelCommand.ZONE_MEM_MASKED:           [self._zone_mem_masked],
+			
             SatelCommand.OUTPUT_STATE:              [self._output_changed],
             SatelCommand.DEVICE_INFO:               [self._device_info],
             SatelCommand.ZONE_TEMP:                 [self._zone_temp_received],
@@ -281,15 +313,134 @@ class AsyncSatel:
 
         violated_zones = msg.list_set_bits(0, 32)
         self.violated_zones = violated_zones
-        _LOGGER.debug("Violated zones: %s", violated_zones)
+        _LOGGER.debug("VIOLATED zones: %s", violated_zones)
         for zone in self._monitored_zones:
             status["zones"][zone] = \
                 1 if zone in violated_zones else 0
 
         _LOGGER.debug("Returning status: %s", status)
 
-        if self._zone_changed_callback:
-            self._zone_changed_callback(status)
+        if self._zone_violated_callback:
+            self._zone_violated_callback(status)
+
+        return status
+    def _zone_alarm(self, msg):
+
+        status = {"zones": {}}
+
+        alarm_zones = msg.list_set_bits(0, 32)
+        self.alarm_zones = alarm_zones
+        _LOGGER.debug("ALARM zones: %s", alarm_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in alarm_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_alarm_callback:
+            self._zone_alarm_callback(status)
+
+        return status
+    def _zone_mem_alarm(self, msg):
+
+        status = {"zones": {}}
+
+        mem_alarm_zones = msg.list_set_bits(0, 32)
+        self.mem_alarm_zones = mem_alarm_zones
+        _LOGGER.debug("MEM ALARM zones: %s", mem_alarm_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in mem_alarm_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_mem_alarm_callback:
+            self._zone_mem_alarm_callback(status)
+
+        return status
+    def _zone_tamper(self, msg):
+
+        status = {"zones": {}}
+
+        tamper_zones = msg.list_set_bits(0, 32)
+        self.tamper_zones = tamper_zones
+        _LOGGER.debug("TAMPER zones: %s", tamper_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in tamper_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_tamper_callback:
+            self._zone_tamper_callback(status)
+
+        return status
+    def _zone_mem_tamper(self, msg):
+
+        status = {"zones": {}}
+
+        mem_tamper_zones = msg.list_set_bits(0, 32)
+        self.mem_tamper_zones = mem_tamper_zones
+        _LOGGER.debug("MEM TAMPER zones: %s", mem_tamper_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in mem_tamper_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_tamper_callback:
+            self._zone_tamper_callback(status)
+
+        return status
+    def _zone_bypass(self, msg):
+
+        status = {"zones": {}}
+
+        bypass_zones = msg.list_set_bits(0, 32)
+        self.bypass_zones = bypass_zones
+        _LOGGER.debug("BTPASS zones: %s", bypass_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in bypass_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_bypass_callback:
+            self._zone_bypass_callback(status)
+
+        return status
+    def _zone_masked(self, msg):
+
+        status = {"zones": {}}
+
+        masked_zones = msg.list_set_bits(0, 32)
+        self.masked_zones = masked_zones
+        _LOGGER.debug("MASKED zones: %s", masked_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in masked_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_masked_callback:
+            self._zone_masked_callback(status)
+
+        return status
+    def _zone_mem_masked(self, msg):
+
+        status = {"zones": {}}
+
+        mem_masked_zones = msg.list_set_bits(0, 32)
+        self.mem_masked_zones = mem_masked_zones
+        _LOGGER.debug("MEM MASKED zones: %s", mem_masked_zones)
+        for zone in self._monitored_zones:
+            status["zones"][zone] = \
+                1 if zone in mem_masked_zones else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._zone_mem_masked_callback:
+            self._zone_mem_masked_callback(status)
 
         return status
 
@@ -334,7 +485,6 @@ class AsyncSatel:
         _LOGGER.debug("Doors opened: %s", doors)
         for door in doors:
             status["doors"][door] = 1
-
 
     async def _send_message(self, msg):
         self._command_queue.put_nowait(msg)
@@ -403,6 +553,7 @@ class AsyncSatel:
 
     async def arm(self, code, partition_list, mode=0):
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
+            
         await self._send_message(SatelMessage(
             SatelCommand.CMD_ARM_MODE_0 + mode,
             code=code, partitions=partition_list))
@@ -433,11 +584,15 @@ class AsyncSatel:
         partitions = msg.list_set_bits(0, 4)
 
         _LOGGER.debug("Update: list of partitions in mode %s: %s",mode, partitions)
-
+        self.partition_states_last_updated = time.time()
         self.partition_states[mode] = partitions
 
-        if self._alarm_status_callback:
-            self._alarm_status_callback()
+        if mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
+            self.partition_armed_delay_timeout = 20
+            _LOGGER.error("Change arm timeout delay to: %s sec",self.partition_armed_delay_timeout)
+
+        #if self._alarm_status_callback:
+        #    self._alarm_status_callback()
 
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
@@ -449,7 +604,17 @@ class AsyncSatel:
             await asyncio.sleep(self._keep_alive_timeout)
             if self.connected:
                 await self._send_message(SatelMessage(SatelCommand.DEVICE_INFO, bytearray(b'\x01\x01')))
-
+    
+    async def partition_armed_delay(self):
+        while True:
+            await asyncio.sleep(0.5)
+            if self.partition_states_last_updated != 0 and time.time()-self.partition_states_last_updated > self.partition_armed_delay_timeout:
+                self.partition_states_last_updated = 0
+                _LOGGER.error("Update partition status after %s sec delay",self.partition_armed_delay_timeout)
+                self.partition_armed_delay_timeout = 5
+                if self._alarm_status_callback:
+                    self._alarm_status_callback()
+                
     def _device_info(self, msg):
         """Dummy handler for keep_alive responses"""
         self._command_status = None
@@ -474,15 +639,30 @@ class AsyncSatel:
                 _LOGGER.info("Skipping command: %s", msg.cmd)
 
     async def monitor_status(self, alarm_status_callback=None,
-                             zone_changed_callback=None,
+                             zone_violated_callback=None,
+                             zone_alarm_callback=None,
+                             zone_mem_alarm_callback=None,
+                             zone_tamper_callback=None,
+                             zone_mem_tamper_callback=None,
+                             zone_bypass_callback= None,
+                             zone_masked_callback=None,
+                             zone_mem_masked_callback=None,
                              output_changed_callback=None):
         """Start monitoring of the alarm status.
 
         Send command to satel integra to start sending updates. Read in a
         loop and call respective callbacks when received messages.
         """
+        
         self._alarm_status_callback = alarm_status_callback
-        self._zone_changed_callback = zone_changed_callback
+        self._zone_violated_callback = zone_violated_callback
+        self._zone_alarm_callback = zone_alarm_callback
+        self._zone_mem_alarm_callback = zone_mem_alarm_callback
+        self._zone_tamper_callback = zone_tamper_callback
+        self._zone_mem_tamper_callback = zone_mem_tamper_callback
+        self._zone_bypass_callback = zone_bypass_callback
+        self._zone_masked_callback = zone_masked_callback
+        self._zone_mem_masked_callback = zone_mem_masked_callback
         self._output_changed_callback = output_changed_callback
 
         _LOGGER.info("Starting monitor_status loop")
