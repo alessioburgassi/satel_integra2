@@ -64,6 +64,9 @@ class SatelCommand(Enum):
     ZONES_BYPASSED  = (0x06,)
     INTEGRA_VERSION = (0x7E,)
     ZONE_TEMP       = (0x7D,)
+    PANEL_STATUS    = (0x1B,)
+    PANEL_STATUS2   = (0x1E,)
+    
 
     CMD_ARM_MODE_0  = (0x80, True)
     CMD_ARM_MODE_1  = (0x81, True)
@@ -75,6 +78,10 @@ class SatelCommand(Enum):
     CMD_OUTPUT_ON   = (0x88, True)
     CMD_OUTPUT_OFF  = (0x89, True)
     CMD_OPEN_DOOR   = (0x8A, True)
+    CMD_BYPASS_ON   = (0x86, True)
+    CMD_BYPASS_OFF  = (0x87, True)
+
+    
     CMD_READ_ZONE_TEMP = (0x7D,)
     CMD_START_MONITORING = (0X7F, True)
     CMD_DEVICE_INFO = (0xEE,)
@@ -209,14 +216,19 @@ class SatelCommandQueue(asyncio.Queue):
 class AsyncSatel:
     """Asynchronous interface to talk to Satel Integra alarm system."""
 
-    def __init__(self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[]):
+    def __init__(self, host, port, loop, monitored_zones=[], monitored_outputs=[], partitions=[], monitored_trouble=[],monitored_trouble2=[]):
         """Init the Satel alarm data."""
         self._host = host
         self._port = port
         self._loop = loop
         self._monitored_zones = monitored_zones
-        self.violated_zones = []
         self._monitored_outputs = monitored_outputs
+        self._monitored_trouble = monitored_trouble
+        self._monitored_trouble2 = monitored_trouble2
+        
+        self.trouble = []
+        self.trouble2 = []
+        
         self.violated_zones = []
         self.alarm_zones = []
         self.mem_alarm_zones = []
@@ -243,6 +255,8 @@ class AsyncSatel:
         self._zone_masked_callback = None
         self._zone_mem_tasked_callback = None
         self._output_changed_callback = None
+        self._trouble_callback = None
+        self._trouble2_callback = None
         self._partitions = partitions
         self._command_status_event = asyncio.Event()
         self._command_status = False
@@ -258,6 +272,8 @@ class AsyncSatel:
 			SatelCommand.ZONE_BYPASS:               [self._zone_bypass],
 			SatelCommand.ZONE_MASKED:               [self._zone_masked],
 			SatelCommand.ZONE_MEM_MASKED:           [self._zone_mem_masked],
+            SatelCommand.PANEL_STATUS:              [self._trouble_status],
+			SatelCommand.PANEL_STATUS2:             [self._trouble_status2],
 			
             SatelCommand.OUTPUT_STATE:              [self._output_changed],
             SatelCommand.DEVICE_INFO:               [self._device_info],
@@ -306,6 +322,42 @@ class AsyncSatel:
             return False
 
         return True
+
+
+    def _trouble_status(self, msg):
+
+        status = {"trouble": {}}
+
+        trouble = msg.list_set_bits(0, 47)
+        self.trouble = trouble
+        _LOGGER.debug("FAULT STATUS: %s", trouble)
+        for zone in self._monitored_trouble:
+            status["trouble"][zone] = \
+                1 if zone in trouble else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._trouble_callback:
+            self._trouble_callback(status)
+
+        return status
+    def _trouble_status2(self, msg):
+
+        status = {"trouble2": {}}
+
+        trouble = msg.list_set_bits(0, 30)
+        self.trouble = trouble
+        _LOGGER.debug("FAULT STATUS2: %s", trouble)
+        for zone in self._monitored_trouble2:
+            status["trouble2"][zone] = \
+                1 if zone in trouble else 0
+
+        _LOGGER.debug("Returning status: %s", status)
+
+        if self._trouble2_callback:
+            self._trouble2_callback(status)
+
+        return status
 
     def _zone_violated(self, msg):
 
@@ -542,11 +594,11 @@ class AsyncSatel:
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
-        monitored_cmds = [SatelCommand.ZONE_VIOLATED, SatelCommand.ARMED_MODE0, SatelCommand.ARMED_MODE1,
+        monitored_cmds = [SatelCommand.ZONE_VIOLATED, SatelCommand.ZONE_ALARM, SatelCommand.ZONE_MEM_ALARM, SatelCommand.ZONE_BYPASS,SatelCommand.ZONE_MASKED, SatelCommand.ZONE_MEM_MASKED,SatelCommand.ZONE_TAMPER,SatelCommand.ZONE_MEM_TAMPER, SatelCommand.ARMED_MODE0, SatelCommand.ARMED_MODE1,
                           SatelCommand.ARMED_MODE2, SatelCommand.ARMED_MODE3, SatelCommand.ARMED_SUPPRESSED,
                           SatelCommand.ENTRY_TIME, SatelCommand.EXIT_COUNTDOWN_OVER_10, SatelCommand.EXIT_COUNTDOWN_UNDER_10,
                           SatelCommand.TRIGGERED, SatelCommand.TRIGGERED_FIRE, SatelCommand.OUTPUT_STATE,
-                          SatelCommand.ZONES_BYPASSED, SatelCommand.DOORS_OPENED]
+                          SatelCommand.ZONES_BYPASSED, SatelCommand.DOORS_OPENED,SatelCommand.PANEL_STATUS,SatelCommand.PANEL_STATUS2]
 
         data = partition_bytes([cmd.value + 1 for cmd in monitored_cmds], 12)
         await self._send_message(SatelMessage(SatelCommand.CMD_START_MONITORING, bytearray(data)))
@@ -572,8 +624,17 @@ class AsyncSatel:
 
     async def set_output(self, code, output_id, state):
         """Send output turn on/off command"""
+        _LOGGER.debug("Set output: %s state: %s",output_id, state)
+        
         await self._send_message(SatelMessage(
             SatelCommand.CMD_OUTPUT_ON if state else SatelCommand.CMD_OUTPUT_OFF,
+            code=code, outputs=[output_id]))
+    async def set_bypass(self, code, output_id, state):
+        _LOGGER.debug("Set Bypass: %s state: %s",output_id, state)
+        
+        """Send output turn on/off command"""
+        await self._send_message(SatelMessage(
+            SatelCommand.CMD_BYPASS_ON if state else SatelCommand.CMD_BYPASS_OFF,
             code=code, outputs=[output_id]))
 
     async def read_temp(self, zone):
@@ -588,7 +649,7 @@ class AsyncSatel:
         self.partition_states[mode] = partitions
 
         if mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
-            self.partition_armed_delay_timeout = 20
+            self.partition_armed_delay_timeout = 15
             _LOGGER.error("Change arm timeout delay to: %s sec",self.partition_armed_delay_timeout)
 
         #if self._alarm_status_callback:
@@ -647,7 +708,10 @@ class AsyncSatel:
                              zone_bypass_callback= None,
                              zone_masked_callback=None,
                              zone_mem_masked_callback=None,
-                             output_changed_callback=None):
+                             output_changed_callback=None,
+                             trouble_callback=None,
+                             trouble2_callback=None
+                             ):
         """Start monitoring of the alarm status.
 
         Send command to satel integra to start sending updates. Read in a
@@ -664,6 +728,8 @@ class AsyncSatel:
         self._zone_masked_callback = zone_masked_callback
         self._zone_mem_masked_callback = zone_mem_masked_callback
         self._output_changed_callback = output_changed_callback
+        self._trouble_callback = trouble_callback
+        self._trouble2_callback = trouble2_callback
 
         _LOGGER.info("Starting monitor_status loop")
 
