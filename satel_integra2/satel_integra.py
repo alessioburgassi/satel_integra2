@@ -225,7 +225,6 @@ class AsyncSatel:
         self._monitored_outputs = monitored_outputs
         self._monitored_trouble = monitored_trouble
         self._monitored_trouble2 = monitored_trouble2
-        
         self.trouble = []
         self.trouble2 = []
         
@@ -245,6 +244,7 @@ class AsyncSatel:
         self._reader = None
         self._writer = None
         self.closed = False
+        self._retry = 5
         self._alarm_status_callback = None
         self._zone_violated_callback = None
         self._zone_alarm_callback = None
@@ -313,12 +313,14 @@ class AsyncSatel:
             self._reader, self._writer = await asyncio.open_connection(self._host, self._port)
             self._command_queue.clear()
             _LOGGER.debug("Connected!")
+            self._retry = 5
 
         except Exception as e:
             _LOGGER.warning(
                 "Exception during connecting: %s.", e)
             self._writer = None
             self._reader = None
+
             return False
 
         return True
@@ -570,12 +572,7 @@ class AsyncSatel:
             _LOGGER.warning("Got exception: %s. Most likely the other side has disconnected!!", e)
             self._writer = None
             self._reader = None
-            self.partition_armed_delay_timeout = 15
-            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
-
-            #if self._alarm_status_callback:
-            #    self._alarm_status_callback()
-
+        
 
     async def sender_worker(self):
         """Keeps sending commands from the queue and waiting for answers"""
@@ -590,9 +587,13 @@ class AsyncSatel:
             except TimeoutError:
                 self._command_queue.task_done()
                 _LOGGER.warning("Timeout while waiting for confirmation")
+                self._writer = None
+                self._reader = None
             except Exception:
                 self._command_queue.task_done()
                 _LOGGER.warning("Error while waiting for confirmation")
+                self._writer = None
+                self._reader = None
 
     async def start_monitoring(self):
         """Start monitoring for interesting events."""
@@ -654,9 +655,6 @@ class AsyncSatel:
             self.partition_armed_delay_timeout = 15
             _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
 
-        #if self._alarm_status_callback:
-        #    self._alarm_status_callback()
-
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
 
@@ -688,11 +686,7 @@ class AsyncSatel:
             _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
             self._reader = None
-            self.partition_armed_delay_timeout = 15
-            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
 
-            #if self._alarm_status_callback:
-            #    self._alarm_status_callback()
             return
 
         msg = SatelMessage.decode_frame(frame)
@@ -743,7 +737,13 @@ class AsyncSatel:
                 _LOGGER.info("Not connected, re-connecting... ")
                 await self.connect()
                 if not self.connected:
+                    if self._retry > 0:
+                        self._retry -=1 
                     _LOGGER.warning("Not connected, sleeping for 10s... ")
+                    if self._retry == 0 and self._alarm_status_callback:
+                        _LOGGER.warning("Too many retry... updating partition status to None")
+                        self._alarm_status_callback()
+
                     await asyncio.sleep(self._reconnection_timeout)
                     continue
             await self.start_monitoring()
