@@ -330,7 +330,7 @@ class AsyncSatel:
 
         trouble = msg.list_set_bits(0, 47)
         self.trouble = trouble
-        _LOGGER.debug("FAULT STATUS: %s", trouble)
+        _LOGGER.debug("TROUBLE STATUS: %s", trouble)
         for zone in self._monitored_trouble:
             status["trouble"][zone] = \
                 1 if zone in trouble else 0
@@ -347,7 +347,7 @@ class AsyncSatel:
 
         trouble = msg.list_set_bits(0, 30)
         self.trouble = trouble
-        _LOGGER.debug("FAULT STATUS2: %s", trouble)
+        _LOGGER.debug("TROUBLE STATUS2: %s", trouble)
         for zone in self._monitored_trouble2:
             status["trouble2"][zone] = \
                 1 if zone in trouble else 0
@@ -570,9 +570,11 @@ class AsyncSatel:
             _LOGGER.warning("Got exception: %s. Most likely the other side has disconnected!!", e)
             self._writer = None
             self._reader = None
+            self.partition_armed_delay_timeout = 15
+            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
 
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+            #if self._alarm_status_callback:
+            #    self._alarm_status_callback()
 
 
     async def sender_worker(self):
@@ -650,7 +652,7 @@ class AsyncSatel:
 
         if mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
             self.partition_armed_delay_timeout = 15
-            _LOGGER.error("Change arm timeout delay to: %s sec",self.partition_armed_delay_timeout)
+            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
 
         #if self._alarm_status_callback:
         #    self._alarm_status_callback()
@@ -672,7 +674,7 @@ class AsyncSatel:
             if self.partition_states_last_updated != 0 and time.time()-self.partition_states_last_updated > self.partition_armed_delay_timeout:
                 self.partition_states_last_updated = 0
                 _LOGGER.error("Update partition status after %s sec delay",self.partition_armed_delay_timeout)
-                self.partition_armed_delay_timeout = 5
+                self.partition_armed_delay_timeout = 3
                 if self._alarm_status_callback:
                     self._alarm_status_callback()
                 
@@ -686,8 +688,11 @@ class AsyncSatel:
             _LOGGER.warning("Got empty response. We think it's disconnect.")
             self._writer = None
             self._reader = None
-            if self._alarm_status_callback:
-                self._alarm_status_callback()
+            self.partition_armed_delay_timeout = 15
+            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
+
+            #if self._alarm_status_callback:
+            #    self._alarm_status_callback()
             return
 
         msg = SatelMessage.decode_frame(frame)
