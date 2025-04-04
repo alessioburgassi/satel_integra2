@@ -671,7 +671,7 @@ class AsyncSatel:
             await asyncio.sleep(0.5)
             if self.partition_states_last_updated != 0 and time.time()-self.partition_states_last_updated > self.partition_armed_delay_timeout:
                 self.partition_states_last_updated = 0
-                _LOGGER.error("Update partition status after %s sec delay",self.partition_armed_delay_timeout)
+                _LOGGER.warning("Update partition status after %s sec delay",self.partition_armed_delay_timeout)
                 self.partition_armed_delay_timeout = 3
                 if self._alarm_status_callback:
                     self._alarm_status_callback()
