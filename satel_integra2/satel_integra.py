@@ -59,6 +59,8 @@ class SatelCommand(Enum):
     RESULT          = (0xEF,)
     TRIGGERED       = (0x13,)
     TRIGGERED_FIRE  = (0x14,)
+    TRIGGERED_MEM  = (0x15,)
+    TRIGGERED_MEM_FIRE  = (0x16,)
     OUTPUT_STATE    = (0x17,)
     DOORS_OPENED    = (0x18,)
     ZONES_BYPASSED  = (0x06,)
@@ -179,7 +181,10 @@ class AlarmState(Enum):
     EXIT_COUNTDOWN_UNDER_10 = 7
     TRIGGERED = 8
     TRIGGERED_FIRE = 9
-    DISARMED = 10
+    TRIGGERED_MEM = 10
+    TRIGGERED_MEM_FIRE = 11
+    DISARMED = 12
+
 
 
 class SatelCommandQueue(asyncio.Queue):
@@ -291,6 +296,8 @@ class AsyncSatel:
             SatelCommand.EXIT_COUNTDOWN_UNDER_10:   [lambda msg: self._armed(AlarmState.EXIT_COUNTDOWN_UNDER_10, msg)],
             SatelCommand.TRIGGERED:                 [lambda msg: self._armed(AlarmState.TRIGGERED, msg)],
             SatelCommand.TRIGGERED_FIRE:            [lambda msg: self._armed(AlarmState.TRIGGERED_FIRE, msg)],
+            SatelCommand.TRIGGERED_MEM:             [lambda msg: self._armed(AlarmState.TRIGGERED_MEM, msg)],
+            SatelCommand.TRIGGERED_MEM_FIRE:        [lambda msg: self._armed(AlarmState.TRIGGERED_MEM_FIRE, msg)],
         }
 
         if loop:
@@ -600,13 +607,15 @@ class AsyncSatel:
         monitored_cmds = [SatelCommand.ZONE_VIOLATED, SatelCommand.ZONE_ALARM, SatelCommand.ZONE_MEM_ALARM, SatelCommand.ZONE_BYPASS,SatelCommand.ZONE_MASKED, SatelCommand.ZONE_MEM_MASKED,SatelCommand.ZONE_TAMPER,SatelCommand.ZONE_MEM_TAMPER, SatelCommand.ARMED_MODE0, SatelCommand.ARMED_MODE1,
                           SatelCommand.ARMED_MODE2, SatelCommand.ARMED_MODE3, SatelCommand.ARMED_SUPPRESSED,
                           SatelCommand.ENTRY_TIME, SatelCommand.EXIT_COUNTDOWN_OVER_10, SatelCommand.EXIT_COUNTDOWN_UNDER_10,
-                          SatelCommand.TRIGGERED, SatelCommand.TRIGGERED_FIRE, SatelCommand.OUTPUT_STATE,
+                          SatelCommand.TRIGGERED, SatelCommand.TRIGGERED_FIRE,SatelCommand.TRIGGERED_MEM, SatelCommand.TRIGGERED_MEM_FIRE, SatelCommand.OUTPUT_STATE,
                           SatelCommand.ZONES_BYPASSED, SatelCommand.DOORS_OPENED,SatelCommand.PANEL_STATUS,SatelCommand.PANEL_STATUS2]
 
         data = partition_bytes([cmd.value + 1 for cmd in monitored_cmds], 12)
         await self._send_message(SatelMessage(SatelCommand.CMD_START_MONITORING, bytearray(data)))
 
     async def arm(self, code, partition_list, mode=0):
+        _LOGGER.debug("COMMAND arm partition: %s ",partition_list )
+        
         """Send arming command to the alarm. Modes allowed: from 0 till 3."""
             
         await self._send_message(SatelMessage(
@@ -615,46 +624,62 @@ class AsyncSatel:
 
     async def disarm(self, code, partition_list):
         """Send command to disarm."""
+        _LOGGER.debug("COMMAND disarm partition: %s ",partition_list )
+        
         await self._send_message(SatelMessage(
             SatelCommand.CMD_DISARM,
             code=code, partitions=partition_list))
 
     async def clear_alarm(self, code, partition_list):
         """Send command to clear the alarm."""
+        _LOGGER.debug("COMMAND clear_alarm partition: %s ",partition_list )
+        
         await self._send_message(SatelMessage(
             SatelCommand.CMD_CLEAR_ALARM,
             code=code, partitions=partition_list))
 
     async def set_output(self, code, output_id, state):
         """Send output turn on/off command"""
-        _LOGGER.debug("Set output: %s state: %s",output_id, state)
+        _LOGGER.debug("COMMAND Set output: %s state: %s",output_id, state)
         
         await self._send_message(SatelMessage(
             SatelCommand.CMD_OUTPUT_ON if state else SatelCommand.CMD_OUTPUT_OFF,
             code=code, outputs=[output_id]))
-    async def set_bypass(self, code, output_id, state):
-        _LOGGER.debug("Set Bypass: %s state: %s",output_id, state)
+    
+    async def set_bypass(self, code, zone_id, state):
+        _LOGGER.debug("COMMAND set_zone_bypass_: %s state: %s",zone_id, state)
         
         """Send output turn on/off command"""
         await self._send_message(SatelMessage(
             SatelCommand.CMD_BYPASS_ON if state else SatelCommand.CMD_BYPASS_OFF,
-            code=code, outputs=[output_id]))
+            code=code, outputs=[zone_id]))
 
     async def read_temp(self, zone):
+        _LOGGER.debug("COMMAND read_temp sensor: %s",zone)
+        
         """Read temperature from the zone."""
         await self._send_message(SatelMessage(SatelCommand.CMD_READ_ZONE_TEMP, bytearray([zone])))
 
     def _armed(self, mode, msg: SatelMessage):
         partitions = msg.list_set_bits(0, 4)
 
-        _LOGGER.debug("Update: list of partitions in mode %s: %s",mode, partitions)
+        _LOGGER.debug("PATITION STATE: list of partitions in mode %s: %s",mode, partitions)
         self.partition_states_last_updated = time.time()
         self.partition_states[mode] = partitions
 
-        if mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
-            self.partition_armed_delay_timeout = 15
-            _LOGGER.error("Change partition status timeout delay to: %s sec",self.partition_armed_delay_timeout)
-
+        if mode == AlarmState.TRIGGERED or mode == AlarmState.TRIGGERED_FIRE:
+            self.partition_armed_delay_timeout = 5
+            _LOGGER.warning("CHANGE DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
+        elif mode == AlarmState.TRIGGERED_MEM or mode == AlarmState.TRIGGERED_MEM_FIRE:
+            _LOGGER.warning("NOT CHANGE DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
+        
+        elif mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
+            self.partition_armed_delay_timeout = 10
+            _LOGGER.warning("CHANGE DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
+        else:
+            self.partition_armed_delay_timeout = 2
+            _LOGGER.warning("DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
+            
     async def keep_alive(self):
         """A workaround for Satel Integra disconnecting after 25s.
 
@@ -671,8 +696,8 @@ class AsyncSatel:
             await asyncio.sleep(0.5)
             if self.partition_states_last_updated != 0 and time.time()-self.partition_states_last_updated > self.partition_armed_delay_timeout:
                 self.partition_states_last_updated = 0
-                _LOGGER.warning("Update partition status after %s sec delay",self.partition_armed_delay_timeout)
-                self.partition_armed_delay_timeout = 3
+                _LOGGER.warning(" EXECUTED update partition status after %s sec delay",self.partition_armed_delay_timeout)
+                self.partition_armed_delay_timeout = 2
                 if self._alarm_status_callback:
                     self._alarm_status_callback()
                 
