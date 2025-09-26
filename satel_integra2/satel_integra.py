@@ -459,7 +459,7 @@ class AsyncSatel:
 
         bypass_zones = msg.list_set_bits(0, 32)
         self.bypass_zones = bypass_zones
-        _LOGGER.debug("BTPASS zones: %s", bypass_zones)
+        _LOGGER.debug("BYPASS zones: %s", bypass_zones)
         for zone in self._monitored_zones:
             status["zones"][zone] = \
                 1 if zone in bypass_zones else 0
@@ -674,10 +674,10 @@ class AsyncSatel:
             _LOGGER.warning("NOT CHANGE DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
         
         elif mode == AlarmState.ARMED_SUPPRESSED or mode == AlarmState.ARMED_MODE0:
-            self.partition_armed_delay_timeout = 10
+            self.partition_armed_delay_timeout = 20
             _LOGGER.warning("CHANGE DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
         else:
-            self.partition_armed_delay_timeout = 2
+            self.partition_armed_delay_timeout = 1
             _LOGGER.warning("DELAY partition (%s) update status delay to: %s sec",mode,self.partition_armed_delay_timeout)
             
     async def keep_alive(self):
